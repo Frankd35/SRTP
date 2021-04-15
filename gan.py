@@ -18,7 +18,7 @@ import torch
 os.makedirs("images", exist_ok=True)
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--n_epochs", type=int, default=500, help="number of epochs of training")
+parser.add_argument("--n_epochs", type=int, default=80, help="number of epochs of training")
 parser.add_argument("--batch_size", type=int, default=8, help="size of the batches")
 parser.add_argument("--lr", type=float, default=0.0002, help="adam: learning rate")
 parser.add_argument("--b1", type=float, default=0.5, help="adam: decay of first order momentum of gradient")
@@ -28,7 +28,7 @@ parser.add_argument("--latent_dim", type=int, default=100, help="dimensionality 
 parser.add_argument("--n_classes", type=int, default=26, help="number of classes for dataset")
 parser.add_argument("--img_size", type=int, default=200, help="size of each image dimension")
 parser.add_argument("--channels", type=int, default=3, help="number of image channels")
-parser.add_argument("--sample_interval", type=int, default=400, help="interval between image sampling")
+parser.add_argument("--sample_interval", type=int, default=300, help="interval between image sampling")
 opt = parser.parse_args()
 print(opt)
 
@@ -146,76 +146,78 @@ def sample_image(n_row, batches_done):
 # ----------
 #  Training
 # ----------
+if __name__ == '__main__':
+    log_file = open("log.txt",'w')
 
-log_file = open("log.txt",'w')
+    for epoch in range(opt.n_epochs):
+        for i, (imgs, labels) in enumerate(dataloader):
 
-for epoch in range(opt.n_epochs):
-    for i, (imgs, labels) in enumerate(dataloader):
+            batch_size = imgs.shape[0]
 
-        batch_size = imgs.shape[0]
+            # Adversarial ground truths
+            valid = Variable(FloatTensor(batch_size, 1).fill_(1.0).to(device), requires_grad=False)
+            fake = Variable(FloatTensor(batch_size, 1).fill_(0.0).to(device), requires_grad=False)
 
-        # Adversarial ground truths
-        valid = Variable(FloatTensor(batch_size, 1).fill_(1.0).to(device), requires_grad=False)
-        fake = Variable(FloatTensor(batch_size, 1).fill_(0.0).to(device), requires_grad=False)
+            # Configure input
+            real_imgs = Variable(imgs.type(FloatTensor).to(device))
+            labels = Variable(labels.type(LongTensor).to(device))
 
-        # Configure input
-        real_imgs = Variable(imgs.type(FloatTensor).to(device))
-        labels = Variable(labels.type(LongTensor).to(device))
+            # -----------------
+            #  Train Generator
+            # -----------------
 
-        # -----------------
-        #  Train Generator
-        # -----------------
+            optimizer_G.zero_grad()
 
-        optimizer_G.zero_grad()
+            # Sample noise and labels as generator input
+            z = Variable(FloatTensor(np.random.normal(0, 1, (batch_size, opt.latent_dim))).to(device))
+            gen_labels = Variable(LongTensor(np.random.randint(0, opt.n_classes, batch_size)).to(device))
 
-        # Sample noise and labels as generator input
-        z = Variable(FloatTensor(np.random.normal(0, 1, (batch_size, opt.latent_dim))).to(device))
-        gen_labels = Variable(LongTensor(np.random.randint(0, opt.n_classes, batch_size)).to(device))
+            # Generate a batch of images
 
-        # Generate a batch of images
+            # Get the return value of forward(*parameters)
+            gen_imgs = generator(z, gen_labels)
 
-        # Get the return value of forward(*parameters)
-        gen_imgs = generator(z, gen_labels)
+            # Loss measures generator's ability to fool the discriminator
+            validity = discriminator(gen_imgs, gen_labels)
+            g_loss = adversarial_loss(validity, valid)
 
-        # Loss measures generator's ability to fool the discriminator
-        validity = discriminator(gen_imgs, gen_labels)
-        g_loss = adversarial_loss(validity, valid)
+            g_loss.backward()
+            optimizer_G.step()
 
-        g_loss.backward()
-        optimizer_G.step()
+            # ---------------------
+            #  Train Discriminator
+            # ---------------------
 
-        # ---------------------
-        #  Train Discriminator
-        # ---------------------
+            optimizer_D.zero_grad()
 
-        optimizer_D.zero_grad()
+            # Loss for real images
+            validity_real = discriminator(real_imgs, labels)
+            d_real_loss = adversarial_loss(validity_real, valid)
 
-        # Loss for real images
-        validity_real = discriminator(real_imgs, labels)
-        d_real_loss = adversarial_loss(validity_real, valid)
+            # Loss for fake images
+            validity_fake = discriminator(gen_imgs.detach(), gen_labels)
+            d_fake_loss = adversarial_loss(validity_fake, fake)
 
-        # Loss for fake images
-        validity_fake = discriminator(gen_imgs.detach(), gen_labels)
-        d_fake_loss = adversarial_loss(validity_fake, fake)
+            # Total discriminator loss
+            d_loss = (d_real_loss + d_fake_loss) / 2
 
-        # Total discriminator loss
-        d_loss = (d_real_loss + d_fake_loss) / 2
+            d_loss.backward()
+            optimizer_D.step()
 
-        d_loss.backward()
-        optimizer_D.step()
-
-        print(
-            "[Epoch %d/%d] [Batch %d/%d] [D loss: %f] [G loss: %f]"
-            % (epoch, opt.n_epochs, i, len(dataloader), d_loss.item(), g_loss.item())
-        )
-
-        batches_done = epoch * len(dataloader) + i
-        if batches_done % opt.sample_interval == 0:
-            log_file.write(
-                "[Epoch %d/%d] [Batch %d/%d] [D loss: %f] [G loss: %f]\n"
+            print(
+                "[Epoch %d/%d] [Batch %d/%d] [D loss: %f] [G loss: %f]"
                 % (epoch, opt.n_epochs, i, len(dataloader), d_loss.item(), g_loss.item())
             )
-            # sample_image(n_row=10, batches_done=batches_done)
-            save_image(gen_imgs.data, "images/%d.png" % batches_done, nrow=10, normalize=True)
 
-log_file.close()
+            batches_done = epoch * len(dataloader) + i
+            if batches_done % opt.sample_interval == 0:
+                log_file.write(
+                    "[Epoch %d/%d] [Batch %d/%d] [D loss: %f] [G loss: %f]\n"
+                    % (epoch, opt.n_epochs, i, len(dataloader), d_loss.item(), g_loss.item())
+                )
+                # sample_image(n_row=10, batches_done=batches_done)
+                # save_image(gen_imgs.data, "images/%d.png" % batches_done, nrow=10, normalize=True)
+
+    log_file.close()
+
+    torch.save(generator,'gan_models/generator.t7')
