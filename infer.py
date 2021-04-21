@@ -24,5 +24,8 @@ gen_labels = Variable(LongTensor(np.random.randint(0, n_classes, batch_size)).to
 generator = torch.load(file_path)
 generator.eval()
 
-img = generator(z, gen_labels)
-save_image(img.data, "images/%d.png", nrow=10, normalize=True)
+for i in range(5000):
+    z = Variable(FloatTensor(np.random.normal(0, 1, (batch_size, latent_dim))).to(device))
+    gen_labels = Variable(LongTensor(np.random.randint(0, n_classes, batch_size)).to(device))
+    img = generator(z, gen_labels)
+    save_image(img.data, "inf_img/{}%d.png".format(i), nrow=10, normalize=True)
